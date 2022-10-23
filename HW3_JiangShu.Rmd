@@ -47,7 +47,7 @@ titanic_test <- testing(titanic_split)
 
 - There are missing values in predictors like "age", "cabin","embarked". I don't think cabin embarked would cause issue since I don't think it is related to survived at all. For embarked, there're only 2 missing values, so we could fill them with the most common value. For age there might be some impacts, so I might drop rows with missing age. I also notice there are some 0 in "fare" column, which should be investigated cause a free ticket would impact our model on surviving. 
 
-- The outcome "survived" might be depend on predictors like "pclass", where first class passenger has a higher surviving probability. We would want to ensure the split data still follows normal distribution so that the training model we are using won't have extreme values. For instance, if not using stratified sampling, there's some chance that R randomly selects most of the survived case into training data, which makes the model we generated tends to predict every case to be survived.
+- The outcome variable "Survived" is imbalanced, where there's more "No". We would want to ensure the split data generally have similar Yes/No ratio as our original data set  so that the training model we are using won't have extreme values. For instance, if not using stratified sampling, there's some chance that R randomly selects most of the survived case into training data, which makes the model we generated tends to predict every case to be survived.
 
 ## Question 2
 
@@ -62,9 +62,172 @@ titanic_train %>%
 
 ## Question 3
 
+```{r , include=FALSE}
+library(corrplot)
+```
+
 ```{r}
 
+cor_M <- titanic_train %>%
+  select(age,sib_sp,parch,fare) %>%
+  correlate()
+rplot(cor_M)
+```
+
+
+-  Age and The # of siblings / spouses aboard the Titanic are negatively correlated. Probably because as people age their siblings might die or their spouses might divorce with them.
+- The # of siblings / spouses aboard the Titanic and the # of parents / children aboard the Titanic has a positive correlation. This makes some sense because we could imagine when you bring your spouse, you might want to bring your children. When you go out with your siblings, you might want to bring your parents together. Vice versa. 
+- Other variables don't have a strong correlation and are pretty independent. 
+
+## Question 4
+
+```{r}
+titanic_recipe <- recipe(survived ~ pclass + sex + age + 
+                           sib_sp + parch + fare, data = titanic_train) %>% 
+  step_impute_linear(age, impute_with = imp_vars(sib_sp)) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact(terms = ~ starts_with("sex"):fare) %>%
+  step_interact(terms = ~ age:fare)
+```
+
+## Question 5
+- Logistic Regression
+```{r}
+log_reg <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+log_wkflow <- workflow() %>% 
+  add_model(log_reg) %>% 
+  add_recipe(titanic_recipe)
+
+log_fit <- fit(log_wkflow, titanic_train)
+```
+
+## Question 6
+- LDA
+```{r, include= FALSE}
+library(MASS)
+```
+```{r}
+lda_mod <- discrim_linear() %>% 
+  set_mode("classification") %>% 
+  set_engine("MASS")
+
+lda_wkflow <- workflow() %>% 
+  add_model(lda_mod) %>% 
+  add_recipe(titanic_recipe)
+
+lda_fit <- fit(lda_wkflow, titanic_train)
+```
+
+## Question 7
+- QDA
+```{r}
+qda_mod <- discrim_quad() %>% 
+  set_mode("classification") %>% 
+  set_engine("MASS")
+
+qda_wkflow <- workflow() %>% 
+  add_model(qda_mod) %>% 
+  add_recipe(titanic_recipe)
+
+qda_fit <- fit(qda_wkflow, titanic_train)
+```
+
+## Question 8
+- Bayes
+```{r}
+nb_mod <- naive_Bayes() %>% 
+  set_mode("classification") %>% 
+  set_engine("klaR") %>% 
+  set_args(usekernel = FALSE) 
+
+nb_wkflow <- workflow() %>% 
+  add_model(nb_mod) %>% 
+  add_recipe(titanic_recipe)
+
+nb_fit <- fit(nb_wkflow, titanic_train)
+```
+
+## Question 9
+
+```{r, warning=FALSE}
+log_reg_acc <- augment(log_fit, new_data = titanic_train) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+lda_acc <- augment(lda_fit, new_data = titanic_train) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+qda_acc <- augment(qda_fit, new_data = titanic_train) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+nb_acc <- augment(nb_fit, new_data = titanic_train) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+
+accuracies <- c(log_reg_acc$.estimate, lda_acc$.estimate, 
+                nb_acc$.estimate, qda_acc$.estimate)
+models <- c("Logistic Regression", "LDA", "Naive Bayes", "QDA")
+results <- tibble(accuracies = accuracies, models = models)
+results %>% 
+  arrange(-accuracies)
+```
+
+- Logistic Regression achieves the highest accuracy(0.8186196) on the data.
+
+## Question 10
+
+Fit the model with the highest training accuracy to the testing data. Report the accuracy of the model on the testing data.
+
+Again using the testing data, create a confusion matrix and visualize it. Plot an ROC curve and calculate the area under it (AUC).
+
+How did the model perform? Compare its training and testing accuracies. If the values differ, why do you think this is so?
+
+```{r}
+prediction_final <- predict(log_fit, new_data = titanic_test, type = "prob")
+```
+
+
+```{r}
+
+best_acc <- augment(log_fit, new_data = titanic_test) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+best_acc
+```
+
+The accuracy of our model is 0.7761194
+
+```{r}
+augment(log_fit, new_data = titanic_test) %>%
+  conf_mat(truth = survived, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+```{r}
+augment(log_fit, new_data = titanic_test) %>%
+  roc_curve(survived, .pred_Yes) %>%
+  autoplot()
+```
+```{r}
+example <- roc(titanic_test$survived, prediction_final$.pred_Yes)
+auc(example)
 
 ```
+
+```{r}
+
+roc.1 <- roc(titanic_test$survived~prediction_final$.pred_Yes, plot = TRUE, print.auc = TRUE )
+```
+```{r}
+lrROC <- roc(titanic_test ~ prediction_final,plot=TRUE,print.auc=TRUE,col="green",lwd =4,legacy.axes=TRUE,main="ROC Curves")
+```
+
+
+```{r}
+accuracies2 <- c(log_reg_acc$.estimate, best_acc$.estimate)
+models <- c("Training accuracies", "Testing accuracies")
+results <- tibble(accuracies = accuracies2, result_model = models)
+results %>% 
+  arrange(-accuracies)
+```
+
+The model perform rather well with a AUC value of . The accuracy of the model on testing data is 0.7761194, which is still rather high. The accuracy value is lower for testing model because we fit the model according to training data. When doing machine learning problem, the accuracy of our model is very likely lower on testing data.
 
 
