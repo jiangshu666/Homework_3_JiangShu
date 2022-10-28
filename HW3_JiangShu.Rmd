@@ -174,11 +174,6 @@ results %>%
 
 ## Question 10
 
-Fit the model with the highest training accuracy to the testing data. Report the accuracy of the model on the testing data.
-
-Again using the testing data, create a confusion matrix and visualize it. Plot an ROC curve and calculate the area under it (AUC).
-
-How did the model perform? Compare its training and testing accuracies. If the values differ, why do you think this is so?
 
 ```{r}
 prediction_final <- predict(log_fit, new_data = titanic_test, type = "prob")
@@ -190,7 +185,7 @@ prediction_final <- predict(log_fit, new_data = titanic_test, type = "prob")
 best_acc <- augment(log_fit, new_data = titanic_test) %>%
   accuracy(truth = survived, estimate = .pred_class)
 best_acc
-```
+``` 
 
 The accuracy of our model is 0.7761194
 
